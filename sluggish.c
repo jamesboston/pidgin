@@ -137,7 +137,7 @@ get_time_idle(void)
 #endif /* !_WIN32 */
 
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish",
+    purple_debug_info("Sluggish",
         "get_time_idle: (Not fake) idle_time = %ld\n", idle_time);
 #endif
     recently_touched = (idle_time <= touch_sensitivity) ? 1 : 0;
@@ -173,7 +173,7 @@ get_time_idle(void)
         idle_time += 1;
     }
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "get_time_idle:\n"
+    purple_debug_info("Sluggish", "get_time_idle:\n"
         "Preferences\t: SLUGGISH_TIME = %d, IDLE_PREF=%ld\n"
         "User Status\t: user_active = %d, recently_touched = %d\n"
         "Timers\t\t: real_idle_start = %ld, (fake)idle_time = %ld, now = %ld, "
@@ -215,7 +215,7 @@ action_set_sluggishness_ok (void *ignored, PurpleRequestFields *fields)
     purple_prefs_set_int(
         "/plugins/core/jboston-sluggish/sluggishness", SLUGGISH_TIME / 60);
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "action_set_sluggishness_ok\n");
+    purple_debug_info("Sluggish", "action_set_sluggishness_ok\n");
 #endif
 }
 
@@ -254,7 +254,7 @@ action_set_sluggishness (PurplePluginAction * action)
         NULL,
         NULL);
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "action_set_sluggishness\n");
+    purple_debug_info("Sluggish", "action_set_sluggishness\n");
 #endif
 }
 
@@ -307,7 +307,7 @@ account_status_changed(PurpleAccount *account, PurpleStatus *old,
     user_active = 0;
 
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish",
+    purple_debug_info("Sluggish",
         "account_status_changed: account = %s, changed from [%s] to [%s]\n",
         purple_account_get_username(account),
         purple_status_get_name(old),
@@ -330,7 +330,7 @@ account_status_changed(PurpleAccount *account, PurpleStatus *old,
         "/plugins/core/jboston-sluggish/touch_sensitivity");
 
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish",
+    purple_debug_info("Sluggish",
         "preference_check: SLUGGISH_TIME = %d, absence_sensitivity = %d, "
         "touch_sensitivity =%d\n",
         SLUGGISH_TIME, absence_sensitivity, touch_sensitivity);
@@ -343,7 +343,7 @@ account_status_changed(PurpleAccount *account, PurpleStatus *old,
 {
     preference_check((PurplePlugin *)data);
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "preference_changed_cb\n");
+    purple_debug_info("Sluggish", "preference_changed_cb\n");
 #endif
 }
 
@@ -379,7 +379,7 @@ get_plugin_pref_frame(PurplePlugin *plugin)
     purple_plugin_pref_set_bounds(ppref, 0, 99);
     purple_plugin_pref_frame_add(frame, ppref);
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "get_plugin_pref_frame\n");
+    purple_debug_info("Sluggish", "get_plugin_pref_frame\n");
 #endif
 
     return frame;
@@ -425,7 +425,7 @@ plugin_load (PurplePlugin * plugin)
         "account-status-changed", sluggish_plugin,
         PURPLE_CALLBACK(account_status_changed), NULL);
 
-    purple_debug_info("core-jboston-sluggish", "sluggish plugin loaded");
+    purple_debug_info("Sluggish", "sluggish plugin loaded");
 
     return TRUE;
 }
@@ -473,7 +473,7 @@ init_plugin (PurplePlugin * plugin)
     purple_prefs_add_int("/plugins/core/jboston-sluggish/touch_sensitivity",
         30);
 #ifdef DEBUG_BUILD
-    purple_debug_info("core-jboston-sluggish", "int_plugin\n");
+    purple_debug_info("Sluggish", "init_plugin\n");
 #endif
 }
 
