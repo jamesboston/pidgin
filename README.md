@@ -13,7 +13,7 @@ Tested on Windows 7 and Ubuntu 11.10
 
 **Installation**
 
-Windows users can download and copy [sluggish.dll](https://raw.github.com/jamesboston/pidgin/master/sluggish.dll) to %appdata%\.purple\plugins
+Windows users can download and copy [sluggish.dll](https://raw.github.com/jamesboston/pidgin/master/sluggish.dll) to %appdata%\\.purple\plugins
 
 Linux users can download and copy [sluggish.so](https://raw.github.com/jamesboston/pidgin/master/sluggish.so) to ~/.purple/plugins
 
