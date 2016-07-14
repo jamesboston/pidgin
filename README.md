@@ -1,5 +1,5 @@
 **Pidgin plugins**  
-*Copyright (C) 2011, 2012 James Boston* `<pidgin@jamesboston.ca>`
+*Copyright (C) 2016 James Boston* `<pidgin@jamesboston.ca>`
 
 ---
 # sluggish  
@@ -9,12 +9,14 @@ the client changes your status from Available to Away only after you have been
 away from the keyboard for several minutes, Sluggish delays changing the status
 to Available until you have been back at your keyboard for several minutes.
 
-Tested on Windows 7 and Ubuntu 11.10
+Tested on Windows 10 with Pidgin 2.11.0 and Ubuntu 14.04 with Pidgin 2.10.9.
 
 **Installation**
 
-Windows users can download and copy [sluggish.dll](https://raw.github.com/jamesboston/pidgin/master/sluggish.dll) to %appdata%\\.purple\plugins
+Download the plugin for your platform and pidgin version from the [release](https://github.com/jamesboston/pidgin/tree/master/release) directory.
 
-Linux users can download and copy [sluggish.so](https://raw.github.com/jamesboston/pidgin/master/sluggish.so) to ~/.purple/plugins
+Windows users copy *sluggish.dll* to *%appdata%\\.purple\plugins*
 
-Restart the Pidgin IM client after installing the plugin.
+Linux users copy *sluggish.so* to *~/.purple/plugins*
+
+Restart the Pidgin IM client and enable the plugin from the Tools menu.
