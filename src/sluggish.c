@@ -2,6 +2,7 @@
  * Sluggish Plugin
  *
  * Copyright (C) 2011, James Boston <pidgin@jamesboston.ca>
+ * Copyright (C) 2016, Ben Kibbey <bjk@luxsci.net>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -31,16 +32,9 @@
 #endif
 
 #include <glib.h>
-#include <notify.h>
-#include <plugin.h>
-#include <version.h>
-#include <debug.h>
 #include <idle.h>
 #include <savedstatuses.h>
 #include <request.h>
-#include "internal.h"
-#include "pluginpref.h"
-#include "prefs.h"
 
 #ifndef _WIN32
 #include <X11/Xlib.h>
@@ -48,8 +42,9 @@
 #include <X11/extensions/scrnsaver.h>
 #endif /* !_WIN32 */
 
-/* TODO: change ID and plugin pref paths */
-#define IDLE_PLUGIN_ID "core-jboston-sluggish"
+#ifndef N_
+#define N_(s) s
+#endif
 
 PurplePlugin *sluggish_plugin = NULL;
 
@@ -60,7 +55,20 @@ static time_t sluggish_expire_time = 0;
 static time_t real_idle_start = 0; /* time of status changed to Away */
 static int touch_sensitivity = 0;
 static int absence_sensitivity = 0;
-static int SLUGGISH_TIME = 0;
+static int sluggish_time = 0;
+
+#define SLUGGISH_VERSION    "0.9"
+#define SLUGGISH_NAME        N_("Sluggish")
+#define SLUGGISH_SUMMARY	N_("Sluggishly change from  Away to Available.")
+#define SLUGGISH_DESCRIPTION N_("Delay changing status from Away to Available until you've been back for X minutes.")
+#define SLUGGISH_AUTHOR      "James Boston <pidgin@jamesboston.ca>"
+#define SLUGGISH_URL         "http://jamesboston.ca"
+#define SLUGGISH_ID          "jboston-sluggish"
+
+#define PREF_PREFIX			"/plugins/core/" SLUGGISH_ID
+#define PREF_SLUGGISHNESS		PREF_PREFIX "/sluggishness"
+#define PREF_TOUCH_SENSITIVITY		PREF_PREFIX "/touch-sensitivity"
+#define PREF_ABSENSE_SENSITIVITY	PREF_PREFIX "/absense-sensitivity"
 
 /*
  *     time functions
@@ -89,10 +97,10 @@ get_screensaver_idle(void){
     int event_base, error_base;
 
     if(!(dpy=XOpenDisplay(NULL))) {
-        purple_debug_error("core-jboston-sluggish",
+        purple_debug_error(SLUGGISH_ID,
             "get_screensaver_idle: XOpenDisplay failed. "
             "Unable to use Xserver to retrieve idle time.");
-        SLUGGISH_TIME = 0;  /* disable sluggish */
+        sluggish_time = 0;  /* disable sluggish */
         return 0;
     }
 
@@ -125,7 +133,7 @@ get_time_idle(void)
 {
     time_t now;
     time_t idle_time;
-    time_t IDLE_PREF = purple_prefs_get_int(
+    time_t idle_pref = purple_prefs_get_int(
         "/purple/away/mins_before_away") * 60;
 
 #ifdef _WIN32
@@ -137,12 +145,12 @@ get_time_idle(void)
 #endif /* !_WIN32 */
 
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish",
+    purple_debug_info(SLUGGISH_ID,
         "get_time_idle: (Not fake) idle_time = %ld\n", idle_time);
 #endif
     recently_touched = (idle_time <= touch_sensitivity) ? 1 : 0;
 
-    if ( away && SLUGGISH_TIME ) {
+    if ( away && sluggish_time ) {
 
         if ( user_active && recently_touched ) {
             if ( now >= sluggish_expire_time ) {
@@ -159,7 +167,7 @@ get_time_idle(void)
 
         } else if ( !user_active && recently_touched ) {
             user_active = 1;
-            sluggish_expire_time = now + SLUGGISH_TIME;
+            sluggish_expire_time = now + sluggish_time;
             idle_time = now - real_idle_start;
 
         } else if ( !user_active && !recently_touched ) {
@@ -169,71 +177,74 @@ get_time_idle(void)
 
     /* bug in idle.c
        idle_time can never equal user's idle preference exactly */
-    if ( idle_time == IDLE_PREF ) {
+    if ( idle_time == idle_pref ) {
         idle_time += 1;
     }
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "get_time_idle:\n"
-        "Preferences\t: SLUGGISH_TIME = %d, IDLE_PREF=%ld\n"
+    purple_debug_info(SLUGGISH_ID, "get_time_idle:\n"
+        "Preferences\t: sluggish_time = %d, idle_pref=%ld\n"
         "User Status\t: user_active = %d, recently_touched = %d\n"
         "Timers\t\t: real_idle_start = %ld, (fake)idle_time = %ld, now = %ld, "
         "sluggish_expire_time = %ld, sluggish_expire_time - now = %ld\n",
-        SLUGGISH_TIME, IDLE_PREF,
+        sluggish_time, idle_pref,
         user_active, recently_touched,
         real_idle_start, idle_time, now, sluggish_expire_time,
         sluggish_expire_time - now);
 #endif
     return idle_time;
 }
-/**/
-static PurpleIdleUiOps ui_ops =
-{
-#if defined(USE_SCREENSAVER) || defined(HAVE_IOKIT)
-    get_time_idle,
-#else
-    NULL,
-#endif /* USE_SCREENSAVER || HAVE_IOKIT */
-    NULL,
-    NULL,
-    NULL,
-    NULL
-};
 
 /*
  *     action callback for request API
  */
 
 static void
-action_set_sluggishness_ok (void *ignored, PurpleRequestFields *fields)
+sluggish_prefs_ok(gpointer _unused, PurpleRequestFields *fields)
 {
-    SLUGGISH_TIME = purple_request_fields_get_integer(fields, "mins") * 60;
+    int n;
+
+    n = purple_request_fields_get_integer(fields, "mins");
+    sluggish_time = n * 60;
 #ifdef _WIN32
-    sluggish_expire_time = (GetTickCount() / 1000) + SLUGGISH_TIME;
+    sluggish_expire_time = (GetTickCount() / 1000) + sluggish_time;
 #else
-    sluggish_expire_time = time(NULL) + SLUGGISH_TIME;
+    sluggish_expire_time = time(NULL) + sluggish_time;
 #endif /* !_WIN32 */
-    purple_prefs_set_int(
-        "/plugins/core/jboston-sluggish/sluggishness", SLUGGISH_TIME / 60);
+    purple_prefs_set_int(PREF_SLUGGISHNESS, n);
+
+    if (purple_request_fields_exists (fields, "touch"))
+      {
+        touch_sensitivity = purple_request_fields_get_integer(fields, "touch");
+        purple_prefs_set_int(PREF_TOUCH_SENSITIVITY, touch_sensitivity);
+      }
+
+    if (purple_request_fields_exists (fields, "absense"))
+      {
+        absence_sensitivity = purple_request_fields_get_integer(fields, "absense");
+        purple_prefs_set_int(PREF_ABSENSE_SENSITIVITY, absence_sensitivity);
+      }
+
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "action_set_sluggishness_ok\n");
+    purple_debug_info(SLUGGISH_ID, "sluggish_prefs_ok\n");
 #endif
 }
 
 /*
  *     actions
  */
-
 static void
-action_set_sluggishness (PurplePluginAction * action)
+action_set_sluggishness (PurplePluginAction *action)
 {
     PurpleRequestFields *request;
     PurpleRequestFieldGroup *group;
     PurpleRequestField *field;
-    int sluggish_pref = purple_prefs_get_int(
-        "/plugins/core/jboston-sluggish/sluggishness");
+    int n;
+
     group = purple_request_field_group_new(NULL);
 
-    field = purple_request_field_int_new("mins", "Minutes", sluggish_pref);
+    n = purple_prefs_get_int(PREF_SLUGGISHNESS);
+    field = purple_request_field_int_new ("mins", "Sluggishness in minutes",
+                                          n, 0, 9999);
     purple_request_field_group_add_field(group, field);
 
     request = purple_request_fields_new();
@@ -246,39 +257,37 @@ action_set_sluggishness (PurplePluginAction * action)
         NULL,                                     /* secondary info     */
         request,                                  /* fields             */
         "_Set",                                   /* OK button  text    */
-        G_CALLBACK(action_set_sluggishness_ok),   /* OK button callback */
+        G_CALLBACK(sluggish_prefs_ok),		  /* OK button callback */
         "_Cancel",                                /* Cancel button text */
         NULL,                                     /* Cancel calllback   */
         NULL,
-        NULL,
-        NULL,
         NULL);
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "action_set_sluggishness\n");
+    purple_debug_info(SLUGGISH_ID, "action_set_sluggishness\n");
 #endif
 }
 
 static void
 action_cancel_sluggishness(PurplePluginAction * action)
 {
-    SLUGGISH_TIME = 0;
+    sluggish_time = 0;
     purple_notify_info(sluggish_plugin, "Sluggishness Cancelled",
         "Normal idle reporting resumed.",
-        "To restart set a new sluggish fudge factor.");
+        "To restart set a new sluggish fudge factor.", NULL);
 }
 
 static GList *
-plugin_actions (PurplePlugin * plugin, gpointer context)
+sluggish_actions_get (PurplePlugin *plugin)
 {
     GList *list = NULL;
     PurplePluginAction *action = NULL;
 
     action = purple_plugin_action_new(
-        "Set Sluggishness", action_set_sluggishness);
+        N_("Set Sluggishness"), action_set_sluggishness);
     list = g_list_append (list, action);
 
     action = purple_plugin_action_new(
-        "Cancel Sluggishness", action_cancel_sluggishness);
+        N_("Cancel Sluggishness"), action_cancel_sluggishness);
     list = g_list_append (list, action);
 
     return list;
@@ -292,7 +301,7 @@ static void
 account_status_changed(PurpleAccount *account, PurpleStatus *old,
     PurpleStatus *new, gpointer data)
 {
-    if ( strcmp((char*)purple_status_get_name(new), "Away") ) {
+    if ( g_strcmp0((char*)purple_status_get_name(new), "Away") ) {
         away = 0;
         recently_touched = 0;
     } else {
@@ -307,7 +316,7 @@ account_status_changed(PurpleAccount *account, PurpleStatus *old,
     user_active = 0;
 
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish",
+    purple_debug_info(SLUGGISH_ID,
         "account_status_changed: account = %s, changed from [%s] to [%s]\n",
         purple_account_get_username(account),
         purple_status_get_name(old),
@@ -315,87 +324,61 @@ account_status_changed(PurpleAccount *account, PurpleStatus *old,
 #endif
 }
 
-/*
- *     Preferences
- */
-
- static void
- preference_check (PurplePlugin *plugin)
- {
-    SLUGGISH_TIME = purple_prefs_get_int(
-        "/plugins/core/jboston-sluggish/sluggishness") * 60;
-    absence_sensitivity = purple_prefs_get_int(
-        "/plugins/core/jboston-sluggish/absence_sensitivity");
-    touch_sensitivity = purple_prefs_get_int(
-        "/plugins/core/jboston-sluggish/touch_sensitivity");
-
-#ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish",
-        "preference_check: SLUGGISH_TIME = %d, absence_sensitivity = %d, "
-        "touch_sensitivity =%d\n",
-        SLUGGISH_TIME, absence_sensitivity, touch_sensitivity);
-#endif
- }
-
- static void
- preference_changed_cb(const char *name, PurplePrefType type,
-        gconstpointer val, gpointer data)
+static PurplePluginPrefFrame *
+sluggish_prefs_get(PurplePlugin *plugin)
 {
-    preference_check((PurplePlugin *)data);
+    PurpleRequestFields *fields;
+    PurpleRequestFieldGroup *group;
+    PurpleRequestField *field;
+    gpointer handle;
+    int n;
+
+    fields = purple_request_fields_new();
+    group = purple_request_field_group_new(NULL);
+    purple_request_fields_add_group(fields, group);
+
+    n = purple_prefs_get_int(PREF_SLUGGISHNESS);
+    field = purple_request_field_int_new ("mins", N_("Sluggishness in minutes"),
+                                          n, 0, 9999);
+    purple_request_field_group_add_field(group, field);
+
+
+    n = purple_prefs_get_int(PREF_ABSENSE_SENSITIVITY);
+    field = purple_request_field_int_new ("absense",
+                                          N_("Absence sensitivity in seconds"),
+                                          n, 0, 9999);
+    purple_request_field_group_add_field(group, field);
+
+    n = purple_prefs_get_int(PREF_TOUCH_SENSITIVITY);
+    field = purple_request_field_int_new ("touch",
+                                          N_("Recent touch sensitivity in seconds"),
+                                          n, 0, 99);
+    purple_request_field_group_add_field(group, field);
+
+    handle = purple_request_fields(plugin,
+                                   N_("Sluggish"), NULL, NULL, fields,
+                                   N_("OK"), (GCallback)sluggish_prefs_ok,
+                                   N_("Cancel"), NULL, NULL, NULL);
+
 #ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "preference_changed_cb\n");
+    purple_debug_info(SLUGGISH_ID, "sluggish_prefs_get\n");
 #endif
+    return handle;
 }
 
- static PurplePluginPrefFrame *
-get_plugin_pref_frame(PurplePlugin *plugin)
+/**/
+static PurpleIdleUiOps ui_ops =
 {
-    PurplePluginPrefFrame *frame;
-    PurplePluginPref *ppref;
-
-    frame = purple_plugin_pref_frame_new();
-
-    ppref = purple_plugin_pref_new_with_label("Settings");
-    purple_plugin_pref_frame_add(frame, ppref);
-
-    ppref = purple_plugin_pref_new_with_name_and_label(
-        "/plugins/core/jboston-sluggish/sluggishness",
-        "Sluggishness in minutes.");
-    purple_plugin_pref_set_bounds(ppref, 0, 9999);
-    purple_plugin_pref_frame_add(frame, ppref);
-
-    ppref = purple_plugin_pref_new_with_label("Advanced Settings");
-    purple_plugin_pref_frame_add(frame, ppref);
-
-    ppref = purple_plugin_pref_new_with_name_and_label(
-        "/plugins/core/jboston-sluggish/absence_sensitivity",
-        "Absence sensitivity in seconds.");
-    purple_plugin_pref_set_bounds(ppref, 0, 9999);
-    purple_plugin_pref_frame_add(frame, ppref);
-
-    ppref = purple_plugin_pref_new_with_name_and_label(
-        "/plugins/core/jboston-sluggish/touch_sensitivity",
-        "Recent touch sensitivity in seconds.");
-    purple_plugin_pref_set_bounds(ppref, 0, 99);
-    purple_plugin_pref_frame_add(frame, ppref);
-#ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "get_plugin_pref_frame\n");
-#endif
-
-    return frame;
-}
-
-static PurplePluginUiInfo prefs_info =
-{
-    get_plugin_pref_frame,
-    0,
+#if defined(USE_SCREENSAVER) || defined(HAVE_IOKIT)
+    get_time_idle,
+#else
     NULL,
+#endif /* USE_SCREENSAVER || HAVE_IOKIT */
     NULL,
     NULL,
     NULL,
     NULL
 };
-
 
 
 /*
@@ -403,78 +386,73 @@ static PurplePluginUiInfo prefs_info =
  */
 
 static gboolean
-plugin_load (PurplePlugin * plugin)
+plugin_load(PurplePlugin *plugin, GError **error)
 {
     sluggish_plugin = plugin;
 
-    purple_prefs_connect_callback(plugin,
-        "/plugins/core/jboston-sluggish/sluggishness",
-        preference_changed_cb, plugin);
-    purple_prefs_connect_callback(plugin,
-        "/plugins/core/jboston-sluggish/absence_sensitivity",
-        preference_changed_cb, plugin);
-    purple_prefs_connect_callback(plugin,
-        "/plugins/core/jboston-sluggish/touch_sensitivity",
-        preference_changed_cb, plugin);
-    preference_check(sluggish_plugin);
+    purple_prefs_add_none(PREF_PREFIX);
+    purple_prefs_add_int(PREF_SLUGGISHNESS, 3);
+    purple_prefs_add_int(PREF_ABSENSE_SENSITIVITY, 60);
+    purple_prefs_add_int(PREF_TOUCH_SENSITIVITY, 30);
+#ifdef DEBUG_BUILD
+    purple_debug_info(SLUGGISH_ID, "plugin_load\n");
+#endif
+
+    sluggish_time = purple_prefs_get_int(PREF_SLUGGISHNESS) * 60;
+    absence_sensitivity = purple_prefs_get_int(PREF_ABSENSE_SENSITIVITY);
+    touch_sensitivity = purple_prefs_get_int(PREF_TOUCH_SENSITIVITY);
+
+#ifdef DEBUG_BUILD
+    purple_debug_info(SLUGGISH_ID,
+        "plugin_load: sluggish_time = %d, absence_sensitivity = %d, "
+        "touch_sensitivity =%d\n",
+        sluggish_time, absence_sensitivity, touch_sensitivity);
+#endif
 
     /* Replace the idle time calculator */
+    purple_idle_init();
     purple_idle_set_ui_ops(&ui_ops);
 
     purple_signal_connect(purple_accounts_get_handle(),
         "account-status-changed", sluggish_plugin,
         PURPLE_CALLBACK(account_status_changed), NULL);
 
-    purple_debug_info("Sluggish", "sluggish plugin loaded");
+    purple_debug_info(SLUGGISH_ID, "sluggish plugin loaded");
 
     return TRUE;
 }
 
-static PurplePluginInfo info =
+static gboolean
+plugin_unload(PurplePlugin *plugin, GError **error)
 {
-    PURPLE_PLUGIN_MAGIC,
-    PURPLE_MAJOR_VERSION,
-    PURPLE_MINOR_VERSION,
-    PURPLE_PLUGIN_STANDARD,
-    NULL,
-    0,
-    NULL,
-    PURPLE_PRIORITY_DEFAULT,
-
-    IDLE_PLUGIN_ID,
-    "Sluggish",
-    "0.8b",
-    "Sluggishly change from  Away to Available.",
-    "Delay changing status from Away to Available until you've been back for X minutes.",
-    "James Boston <pidgin@jamesboston.ca>",
-    "http://jamesboston.ca",
-
-    plugin_load,
-    NULL,
-    NULL,
-
-    NULL,
-    NULL,
-    &prefs_info,
-    plugin_actions,
-    NULL,
-    NULL,
-    NULL,
-    NULL
-};
-
-static void
-init_plugin (PurplePlugin * plugin)
-{
-    purple_prefs_add_none("/plugins/core/jboston-sluggish");
-    purple_prefs_add_int("/plugins/core/jboston-sluggish/sluggishness", 3);
-    purple_prefs_add_int("/plugins/core/jboston-sluggish/absence_sensitivity",
-        60);
-    purple_prefs_add_int("/plugins/core/jboston-sluggish/touch_sensitivity",
-        30);
-#ifdef DEBUG_BUILD
-    purple_debug_info("Sluggish", "init_plugin\n");
-#endif
+  purple_idle_uninit();
+  sluggish_plugin = NULL;
+  return TRUE;
 }
 
-PURPLE_INIT_PLUGIN (sluggish, init_plugin, info)
+static PurplePluginInfo *
+plugin_query(GError **error)
+{
+  const gchar * const authors[] = {
+      SLUGGISH_AUTHOR,
+      "Ben Kibbey <bjk@luxsci.net>",
+      NULL
+  };
+
+  return purple_plugin_info_new(
+                                "id",           SLUGGISH_ID,
+                                "name",         SLUGGISH_NAME,
+                                "version",      SLUGGISH_VERSION,
+                                "category",     N_("Idle"),
+                                "summary",      SLUGGISH_SUMMARY,
+                                "description",  SLUGGISH_DESCRIPTION,
+                                "authors",      authors,
+                                "website",      "http://jamesboston.ca",
+                                "abi-version",  PURPLE_ABI_VERSION,
+                                "pref-request-cb", sluggish_prefs_get,
+                                "actions-cb", sluggish_actions_get,
+                                NULL
+  );
+}
+
+PURPLE_PLUGIN_INIT(sluggish_idle, plugin_query, plugin_load, plugin_unload);
